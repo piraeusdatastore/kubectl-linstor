@@ -121,7 +121,7 @@ func main() {
 	ctx, cancel := ctxsignal.WithTermination(context.Background())
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "linstorcontrollers.linstor.linbit.com", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}")
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "linstorcontrollers", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}")
 	out, err := cmd.Output()
 	if err != nil {
 		log.Fatalf("failed to fetch LINSTOR controller resource: %v", err)

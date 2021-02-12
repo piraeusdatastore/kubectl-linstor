@@ -21,7 +21,7 @@ To use `kubectl linstor` you need to be using the Piraeus Operator. You need exa
 in your cluster. You can verify this by running:
 
 ```
-$ kubectl get linstorcontrollers.linstor.linbit.com --all-namespaces
+$ kubectl get linstorcontrollers --all-namespaces
 NAMESPACE   NAME            AGE
 piraeus     piraeus-op-cs   5d21h
 ```
