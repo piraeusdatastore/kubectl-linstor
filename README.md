@@ -11,20 +11,12 @@ $ kubectl linstor node list
 ┊ kube-node-01.test                      ┊ SATELLITE  ┊ 10.43.224.26:3366 (PLAIN)   ┊ Online ┊
 ┊ kube-node-02.test                      ┊ SATELLITE  ┊ 10.43.224.27:3366 (PLAIN)   ┊ Online ┊
 ┊ kube-node-03.test                      ┊ SATELLITE  ┊ 10.43.224.28:3366 (PLAIN)   ┊ Online ┊
-┊ linstor-cs-controller-85b4f757f5-kxdvn ┊ CONTROLLER ┊ 172.24.116.114:3366 (PLAIN) ┊ Online ┊
 ╰────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Requirements & Installation
 
-To use `kubectl linstor` you need to be using the Piraeus Operator. You need exactly one `LinstorController` resource
-in your cluster. You can verify this by running:
-
-```
-$ kubectl get linstorcontrollers --all-namespaces
-NAMESPACE   NAME            AGE
-piraeus     piraeus-op-cs   5d21h
-```
+To use `kubectl linstor` you need to be using the Piraeus Operator.
 
 In addition, the plugin makes use of the `kubectl` command itself. Pointing `kubectl` to another cluster or using a
 different user will also affect `kubectl linstor`. 
