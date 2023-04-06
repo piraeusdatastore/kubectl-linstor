@@ -22,5 +22,6 @@ jobs:
           goarch: ${{ matrix.goarch }}
           extra_files: LICENSE README.md
           sha256sum: TRUE
+          overwrite: TRUE
       - name: Update new version in krew-index
         uses: rajatjindal/krew-release-bot@v0.0.46
