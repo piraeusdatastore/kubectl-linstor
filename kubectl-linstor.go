@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/henvic/ctxsignal"
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 )
 
@@ -31,14 +31,19 @@ func expandSpecialArgToLinstorResourceNames(ctx context.Context, arg string) []s
 		_, _ = fmt.Fprintf(os.Stderr, "%s -> %s\n", arg, pvname)
 		return []string{pvname}
 	case "pod":
-		pvnames, err := replacePodWithLinstorPV(ctx, parts[1])
+		pvNames, pvcNames, err := replacePodWithLinstorPV(ctx, parts[1])
 		if err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "could not convert pod to PV names, continue with unexpanded arg '%s': %s\n", arg, err.Error())
 			return []string{arg}
 		}
 
-		_, _ = fmt.Fprintf(os.Stderr, "%s -> %s\n", arg, strings.Join(pvnames, " "))
-		return pvnames
+		pvcMapping := make([]string, len(pvNames))
+		for i := range pvNames {
+			pvcMapping[i] = fmt.Sprintf("[%s -> %s]", pvcNames[i], pvNames[i])
+		}
+
+		_, _ = fmt.Fprintf(os.Stderr, "%s -> %s\n", arg, strings.Join(pvcMapping, " "))
+		return pvNames
 	default:
 		return []string{arg}
 	}
@@ -48,35 +53,34 @@ func expandSpecialArgToLinstorResourceNames(ctx context.Context, arg string) []s
 //
 // The Pod is converted to LINSTOR resources by resolving all persistent volume claims to PVs (see replacePVCWithPVArg).
 // A single "pod:" argument can expand to multiple resource names, if the pod has more than one PVCs.
-func replacePodWithLinstorPV(ctx context.Context, arg string) ([]string, error) {
+func replacePodWithLinstorPV(ctx context.Context, arg string) ([]string, []string, error) {
 	namespace, name, namespaceArgs := maybeNamespacedArgToKubectlArgs(arg)
 	kubectlArgs := []string{"get", "pods", name, "--output", "jsonpath={.spec.volumes[*].persistentVolumeClaim.claimName}"}
 	kubectlArgs = append(kubectlArgs, namespaceArgs...)
 	pvcOut, err := exec.CommandContext(ctx, "kubectl", kubectlArgs...).Output()
 	if err != nil {
 		if len(namespaceArgs) == 0 {
-			return nil, fmt.Errorf("maybe missing namespace: pod:<namespace>/%s", name)
+			return nil, nil, fmt.Errorf("maybe missing namespace: pod:<namespace>/%s", name)
 		}
 
-		return nil, fmt.Errorf("could not convert Pod to PVCs: %s", err.(*exec.ExitError).Stderr)
+		return nil, nil, fmt.Errorf("could not convert Pod to PVCs: %s", err.(*exec.ExitError).Stderr)
 	}
 
-	pvcNames := bytes.Fields(pvcOut)
+	pvcNames := strings.Fields(string(pvcOut))
 
-	pvnames := make([]string, len(pvcNames))
-	for i := range pvcNames {
-		pvc := string(pvcNames[i])
+	pvNames := make([]string, len(pvcNames))
+	for i, pvc := range pvcNames {
 		if namespace != "" {
 			pvc = fmt.Sprintf("%s/%s", namespace, pvc)
 		}
 		pv, err := replacePVCWithPVArg(ctx, pvc)
 		if err != nil {
-			return nil, fmt.Errorf("could not convert Pod's PVC to PV: %w", err)
+			return nil, nil, fmt.Errorf("could not convert Pod's PVC to PV: %w", err)
 		}
-		pvnames[i] = pv
+		pvNames[i] = pv
 	}
 
-	return pvnames, nil
+	return pvNames, pvcNames, nil
 }
 
 // Converts arguments of form "pvc:[namespace/]pvcname" to LINSTOR resource names.
@@ -117,42 +121,78 @@ func maybeNamespacedArgToKubectlArgs(arg string) (string, string, []string) {
 	return "", "", nil
 }
 
+func getControllerDeploymentNamespacedName(ctx context.Context) (string, string, error) {
+	out, err := exec.CommandContext(ctx, "kubectl", "api-resources", "-oname").Output()
+	if err != nil {
+		log.Fatalf("failed to fetch Cluster APIs: %v", err)
+	}
+
+	apiResources := strings.Fields(string(out))
+
+	for _, apiResource := range apiResources {
+		switch strings.SplitN(apiResource, ".", 2)[0] {
+		case "linstorclusters":
+			out, err := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "deployments", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}", "--selector", "app.kubernetes.io/component=linstor-controller").Output()
+			if err != nil {
+				return "", "", fmt.Errorf("failed to fetch LINSTOR controller resource: %w", err)
+			}
+
+			controllerDeployments := strings.Fields(string(out))
+			if len(controllerDeployments) == 0 {
+				log.Fatal("could not find a LINSTOR Controller Deployment resource")
+			}
+
+			if len(controllerDeployments) > 1 {
+				log.Fatalf("found more than one LINSTOR Controller Deployment resource: %v", controllerDeployments)
+			}
+
+			parts := strings.SplitN(controllerDeployments[0], ",", 2)
+			return parts[0], parts[1], nil
+		case "linstorcontrollers":
+			out, err := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "linstorcontrollers", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}").Output()
+			if err != nil {
+				return "", "", fmt.Errorf("failed to fetch LINSTOR controller resource: %w", err)
+			}
+
+			controllerResources := strings.Fields(string(out))
+			if len(controllerResources) == 0 {
+				log.Fatal("could not find a LinstorController resource")
+			}
+
+			if len(controllerResources) > 1 {
+				log.Fatalf("found more than one LinstorController resource: %v", controllerResources)
+			}
+
+			parts := strings.SplitN(controllerResources[0], ",", 2)
+			return parts[0], parts[1] + "-controller", nil
+		}
+	}
+
+	return "", "", fmt.Errorf("could not find a managed LINSTOR Controller resource")
+}
+
 func main() {
-	ctx, cancel := ctxsignal.WithTermination(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "linstorcontrollers", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}")
-	out, err := cmd.Output()
+	namespace, name, err := getControllerDeploymentNamespacedName(ctx)
 	if err != nil {
-		log.Fatalf("failed to fetch LINSTOR controller resource: %v", err)
+		log.Fatalf("%s", err)
 	}
 
-	controllerResources := bytes.Fields(out)
-	if len(controllerResources) == 0 {
-		log.Fatal("could not find a LinstorController resource")
-	}
-
-	if len(controllerResources) > 1 {
-		log.Fatalf("found more than one LinstorController resource: %v", controllerResources)
-	}
-
-	parts := bytes.SplitN(controllerResources[0], []byte(","), 2)
-	controllerNamespace := string(parts[0])
-	controllerResourceName := parts[1]
-
-	toExecArgs := []string{"exec", "--namespace", controllerNamespace, "--stdin"}
+	toExecArgs := []string{"exec", "--namespace", namespace, "--stdin"}
 	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
 		// Enable interactive mode in case the plugin is running in a tty.
 		toExecArgs = append(toExecArgs, "--tty")
 	}
-	deploymentRef := fmt.Sprintf("deployment/%s-controller", controllerResourceName)
+	deploymentRef := fmt.Sprintf("deployment/%s", name)
 
 	toExecArgs = append(toExecArgs, deploymentRef, "--", "linstor")
 	for _, arg := range os.Args[1:] {
 		toExecArgs = append(toExecArgs, expandSpecialArgToLinstorResourceNames(ctx, arg)...)
 	}
 
-	cmd = exec.CommandContext(ctx, "kubectl", toExecArgs...)
+	cmd := exec.CommandContext(ctx, "kubectl", toExecArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
