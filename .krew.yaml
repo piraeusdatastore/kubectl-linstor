@@ -6,72 +6,72 @@ spec:
   version: {{ .TagName }}
   homepage: https://github.com/piraeusdatastore/kubectl-linstor
   platforms:
-    - selector:
-        matchLabels:
-          os: darwin
-          arch: amd64
-      {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_darwin_amd64.tar.gz" .TagName }}
-      files:
-        - from: ./kubectl-linstor
-          to: .
-        - from: ./LICENSE
-          to: .
-      bin: kubectl-linstor
-    - selector:
+  - selector:
       matchLabels:
         os: darwin
-        arch: arm64
-      {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_darwin_arm64.tar.gz" .TagName }}
-      files:
-        - from: ./kubectl-linstor
-          to: .
-        - from: ./LICENSE
-          to: .
-      bin: kubectl-linstor
-      - selector:
-          matchLabels:
-            os: linux
-            arch: amd64
-        {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_amd64.tar.gz" .TagName }}
-        files:
-          - from: ./kubectl-linstor
-            to: .
-          - from: ./LICENSE
-            to: .
-        bin: kubectl-linstor
-    - selector:
-        matchLabels:
-          os: linux
-          arch: arm64
-      {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_arm64.tar.gz" .TagName }}
-      files:
-        - from: ./kubectl-linstor
-          to: .
-        - from: ./LICENSE
-          to: .
-      bin: kubectl-linstor
-    - selector:
-        matchLabels:
-          os: linux
-          arch: s390x
-      {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_s390x.tar.gz" .TagName }}
-      files:
-        - from: ./kubectl-linstor
-          to: .
-        - from: ./LICENSE
-          to: .
-      bin: kubectl-linstor
-    - selector:
-      matchLabels:
-        os: windows
         arch: amd64
-      {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_windows_amd64.zip" .TagName }}
-      files:
-        - from: ./kubectl-linstor
-          to: .
-        - from: ./LICENSE
-          to: .
-      bin: kubectl-linstor
+    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_darwin_amd64.tar.gz" .TagName }}
+    files:
+      - from: ./kubectl-linstor
+        to: .
+      - from: ./LICENSE
+        to: .
+    bin: kubectl-linstor
+  - selector:
+    matchLabels:
+      os: darwin
+      arch: arm64
+    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_darwin_arm64.tar.gz" .TagName }}
+    files:
+      - from: ./kubectl-linstor
+        to: .
+      - from: ./LICENSE
+        to: .
+    bin: kubectl-linstor
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_amd64.tar.gz" .TagName }}
+    files:
+      - from: ./kubectl-linstor
+        to: .
+      - from: ./LICENSE
+        to: .
+    bin: kubectl-linstor
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_arm64.tar.gz" .TagName }}
+    files:
+      - from: ./kubectl-linstor
+        to: .
+      - from: ./LICENSE
+        to: .
+    bin: kubectl-linstor
+  - selector:
+      matchLabels:
+        os: linux
+        arch: s390x
+    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_s390x.tar.gz" .TagName }}
+    files:
+      - from: ./kubectl-linstor
+        to: .
+      - from: ./LICENSE
+        to: .
+    bin: kubectl-linstor
+  - selector:
+    matchLabels:
+      os: windows
+      arch: amd64
+    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_windows_amd64.zip" .TagName }}
+    files:
+      - from: ./kubectl-linstor
+        to: .
+      - from: ./LICENSE
+        to: .
+    bin: kubectl-linstor
   shortDescription: View and manage LINSTOR storage resources
   description: |
     Usage:
