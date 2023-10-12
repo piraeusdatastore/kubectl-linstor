@@ -5,6 +5,12 @@ metadata:
 spec:
   version: {{ .TagName }}
   homepage: https://github.com/piraeusdatastore/kubectl-linstor
+  shortDescription: View and manage LINSTOR storage resources
+  description: |
+    Usage:
+      kubectl linstor ...
+      Executes control commands for the LINSTOR storage system directly via kubectl.
+      Read more documentation at: https://github.com/piraeusdatastore/kubectl-linstor
   platforms:
   - selector:
       matchLabels:
@@ -52,17 +58,6 @@ spec:
     bin: kubectl-linstor
   - selector:
       matchLabels:
-        os: linux
-        arch: s390x
-    {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_linux_s390x.tar.gz" .TagName }}
-    files:
-      - from: ./kubectl-linstor
-        to: .
-      - from: ./LICENSE
-        to: .
-    bin: kubectl-linstor
-  - selector:
-      matchLabels:
         os: windows
         arch: amd64
     {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_windows_amd64.zip" .TagName }}
@@ -72,9 +67,3 @@ spec:
       - from: ./LICENSE
         to: .
     bin: kubectl-linstor
-  shortDescription: View and manage LINSTOR storage resources
-  description: |
-    Usage:
-      kubectl linstor ...
-      Executes control commands for the LINSTOR storage system directly via kubectl.
-      Read more documentation at: https://github.com/piraeusdatastore/kubectl-linstor
