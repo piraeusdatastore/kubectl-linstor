@@ -62,8 +62,8 @@ spec:
         arch: amd64
     {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_windows_amd64.zip" .TagName }}
     files:
-      - from: ./kubectl-linstor
+      - from: ./kubectl-linstor.exe
         to: .
       - from: ./LICENSE
         to: .
-    bin: kubectl-linstor
+    bin: kubectl-linstor.exe
