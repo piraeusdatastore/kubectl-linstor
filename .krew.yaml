@@ -18,9 +18,9 @@ spec:
         to: .
     bin: kubectl-linstor
   - selector:
-    matchLabels:
-      os: darwin
-      arch: arm64
+      matchLabels:
+        os: darwin
+        arch: arm64
     {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_darwin_arm64.tar.gz" .TagName }}
     files:
       - from: ./kubectl-linstor
@@ -62,9 +62,9 @@ spec:
         to: .
     bin: kubectl-linstor
   - selector:
-    matchLabels:
-      os: windows
-      arch: amd64
+      matchLabels:
+        os: windows
+        arch: amd64
     {{addURIAndSha "https://github.com/piraeusdatastore/kubectl-linstor/releases/download/{{ .TagName }}/kubectl-linstor_{{ .TagName }}_windows_amd64.zip" .TagName }}
     files:
       - from: ./kubectl-linstor
