@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 )
 
@@ -171,6 +173,86 @@ func getControllerDeploymentNamespacedName(ctx context.Context) (string, string,
 	return "", "", fmt.Errorf("could not find a managed LINSTOR Controller resource")
 }
 
+func isSosReportDownload(args ...string) bool {
+	if len(args) < 2 {
+		return false
+	}
+
+	isSosReport := args[0] == "sos" || args[0] == "sos-report"
+	isDownload := args[1] == "dl" || args[1] == "download"
+	return isSosReport && isDownload
+}
+
+func doSosReportDownload(ctx context.Context, namespace, deployment string, kubectlArgs []string, args ...string) {
+	createCmd := append(kubectlArgs, "linstor", "-m", "--output-version", "v1", "sos-report", "create")
+	for _, arg := range args[2:] {
+		createCmd = append(createCmd, expandSpecialArgToLinstorResourceNames(ctx, arg)...)
+	}
+
+	out, err := exec.CommandContext(ctx, "kubectl", createCmd...).Output()
+	if err != nil {
+		log.Fatalf("failed to create sos-report: %s", err)
+	}
+
+	type LinstorMsg struct {
+		ObjRefs struct {
+			Path string `json:"path"`
+		} `json:"obj_refs"`
+	}
+	var msgs []LinstorMsg
+
+	err = json.Unmarshal(out, &msgs)
+	if err != nil {
+		log.Fatalf("failed to parse LINSTOR message: %s", err)
+	}
+
+	if len(msgs) != 1 {
+		log.Fatalf("expected exactly one LINSTOR message, got %d", len(msgs))
+	}
+
+	if msgs[0].ObjRefs.Path == "" {
+		log.Fatalf("LINSTOR message does not have sos-report path")
+	}
+
+	base := filepath.Base(msgs[0].ObjRefs.Path)
+	file, err := os.Create(base)
+	if err != nil {
+		log.Fatalf("failed to open destination file %s: %s", base, err)
+	}
+	defer file.Close()
+
+	copyCmd := exec.CommandContext(ctx, "kubectl", append(kubectlArgs, "cat", msgs[0].ObjRefs.Path)...)
+	copyCmd.Stdout = file
+	err = copyCmd.Run()
+	if err != nil {
+		log.Fatalf("failed to copy sos-report to host: %s", err)
+	}
+
+	fileInfo, _ := os.Stdout.Stat()
+	color := ""
+	resetColor := ""
+	if (fileInfo.Mode() & os.ModeCharDevice) != 0 {
+		color = "\x1b[1;32m"
+		resetColor = "\x1b[0m"
+	}
+
+	fmt.Printf("%sSUCCESS:%s\n    File saved to: %s\n", color, resetColor, base)
+}
+
+func rawExec(ctx context.Context, kubectlArgs []string, args ...string) {
+	kubectlArgs = append(kubectlArgs, "linstor")
+	for _, arg := range args {
+		kubectlArgs = append(kubectlArgs, expandSpecialArgToLinstorResourceNames(ctx, arg)...)
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", kubectlArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run()
+	os.Exit(cmd.ProcessState.ExitCode())
+}
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -187,15 +269,12 @@ func main() {
 	}
 	deploymentRef := fmt.Sprintf("deployment/%s", name)
 
-	toExecArgs = append(toExecArgs, deploymentRef, "--", "linstor")
-	for _, arg := range os.Args[1:] {
-		toExecArgs = append(toExecArgs, expandSpecialArgToLinstorResourceNames(ctx, arg)...)
+	toExecArgs = append(toExecArgs, deploymentRef, "--")
+	cmdArgs := os.Args[1:]
+	switch {
+	case isSosReportDownload(cmdArgs...):
+		doSosReportDownload(ctx, namespace, deploymentRef, toExecArgs, cmdArgs...)
+	default:
+		rawExec(ctx, toExecArgs, cmdArgs...)
 	}
-
-	cmd := exec.CommandContext(ctx, "kubectl", toExecArgs...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	_ = cmd.Run()
-	os.Exit(cmd.ProcessState.ExitCode())
 }
