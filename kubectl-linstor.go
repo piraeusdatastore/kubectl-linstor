@@ -9,8 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/pflag"
 )
 
 // Expand argument of form "<resource>:..." to LINSTOR resources names.
@@ -184,9 +187,44 @@ func isSosReportDownload(args ...string) bool {
 }
 
 func doSosReportDownload(ctx context.Context, namespace, deployment string, kubectlArgs []string, args ...string) {
+	flags := pflag.NewFlagSet("download", pflag.ContinueOnError)
+	help := flags.BoolP("help", "h", false, "")
+	since := flags.StringP("since", "s", "", "Create sos-report with logs since n days. e.g. \"3days\"")
+	nodes := flags.StringArrayP("nodes", "n", nil, "Only include the given nodes in the sos-report")
+	resources := flags.StringArrayP("resources", "r", nil, "Only include nodes that have the given resources deployed in the sos-report")
+	exclude := flags.StringArrayP("exclude-nodes", "e", nil, "Do not include the given nodes in the sos-report")
+	noController := flags.Bool("no-controller", false, "Do not include the controller in the sos-report")
+	err := flags.Parse(args[2:])
+	if err != nil {
+		log.Fatalf("failed to parse flags: %s", err)
+	}
+
+	if *help {
+		fmt.Printf(flags.FlagUsages())
+		return
+	}
+
+	if len(flags.Args()) > 1 {
+		fmt.Printf(flags.FlagUsages())
+		_, _ = fmt.Fprintln(os.Stderr, "Expected at most one path argument")
+		os.Exit(1)
+	}
+
 	createCmd := append(kubectlArgs, "linstor", "-m", "--output-version", "v1", "sos-report", "create")
-	for _, arg := range args[2:] {
-		createCmd = append(createCmd, expandSpecialArgToLinstorResourceNames(ctx, arg)...)
+	if *since != "" {
+		createCmd = append(createCmd, "--since", *since)
+	}
+	if len(*nodes) > 0 {
+		createCmd = append(createCmd, append([]string{"--nodes"}, *nodes...)...)
+	}
+	if len(*resources) > 0 {
+		createCmd = append(createCmd, append([]string{"--resources"}, *resources...)...)
+	}
+	if len(*exclude) > 0 {
+		createCmd = append(createCmd, append([]string{"--exclude-nodes"}, *exclude...)...)
+	}
+	if *noController {
+		createCmd = append(createCmd, "--no-controller")
 	}
 
 	out, err := exec.CommandContext(ctx, "kubectl", createCmd...).Output()
@@ -214,10 +252,22 @@ func doSosReportDownload(ctx context.Context, namespace, deployment string, kube
 		log.Fatalf("LINSTOR message does not have sos-report path")
 	}
 
-	base := filepath.Base(msgs[0].ObjRefs.Path)
-	file, err := os.Create(base)
+	var dest string
+	if len(flags.Args()) == 0 {
+		dest = filepath.Base(msgs[0].ObjRefs.Path)
+	} else {
+		s, err := os.Stat(flags.Arg(0))
+		if os.IsNotExist(err) {
+			dest = flags.Arg(0)
+		} else if s.IsDir() {
+			dest = path.Join(flags.Arg(0), filepath.Base(msgs[0].ObjRefs.Path))
+		} else {
+			dest = filepath.Base(msgs[0].ObjRefs.Path)
+		}
+	}
+	file, err := os.Create(dest)
 	if err != nil {
-		log.Fatalf("failed to open destination file %s: %s", base, err)
+		log.Fatalf("failed to open destination file %s: %s", dest, err)
 	}
 	defer file.Close()
 
@@ -236,7 +286,7 @@ func doSosReportDownload(ctx context.Context, namespace, deployment string, kube
 		resetColor = "\x1b[0m"
 	}
 
-	fmt.Printf("%sSUCCESS:%s\n    File saved to: %s\n", color, resetColor, base)
+	fmt.Printf("%sSUCCESS:%s\n    File saved to: %s\n", color, resetColor, dest)
 }
 
 func rawExec(ctx context.Context, kubectlArgs []string, args ...string) {
