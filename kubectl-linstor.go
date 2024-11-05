@@ -1,10 +1,12 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -271,11 +273,37 @@ func doSosReportDownload(ctx context.Context, namespace, deployment string, kube
 	}
 	defer file.Close()
 
-	copyCmd := exec.CommandContext(ctx, "kubectl", append(kubectlArgs, "cat", msgs[0].ObjRefs.Path)...)
-	copyCmd.Stdout = file
-	err = copyCmd.Run()
+	rpipe, wpipe, err := os.Pipe()
 	if err != nil {
-		log.Fatalf("failed to copy sos-report to host: %s", err)
+		log.Fatalf("failed to create pipe: %s", err)
+	}
+
+	copyCmd := exec.CommandContext(ctx, "kubectl", append(kubectlArgs, "tar", "-cf", "-", msgs[0].ObjRefs.Path)...)
+	copyCmd.Stdout = wpipe
+	err = copyCmd.Start()
+	if err != nil {
+		log.Fatalf("failed to start of copy sos-report to host: %s", err)
+	}
+
+	err = wpipe.Close()
+	if err != nil {
+		log.Fatalf("failed to close pipe: %s", err)
+	}
+
+	reader := tar.NewReader(rpipe)
+	_, err = reader.Next()
+	if err != nil {
+		log.Fatalf("failed to read tar header: %s", err)
+	}
+
+	_, err = io.Copy(file, reader)
+	if err != nil {
+		log.Fatalf("failed to copy SOS report: %s", err)
+	}
+
+	err = rpipe.Close()
+	if err != nil {
+		log.Fatalf("failed to close pipe: %s", err)
 	}
 
 	fileInfo, _ := os.Stdout.Stat()
