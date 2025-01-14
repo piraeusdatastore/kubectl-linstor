@@ -1,12 +1,10 @@
 package main
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -128,10 +126,10 @@ func maybeNamespacedArgToKubectlArgs(arg string) (string, string, []string) {
 	return "", "", nil
 }
 
-func getControllerDeploymentNamespacedName(ctx context.Context) (string, string, error) {
+func getControllerPodNamespacedName(ctx context.Context) (string, string, error) {
 	out, err := exec.CommandContext(ctx, "kubectl", "api-resources", "-oname").Output()
 	if err != nil {
-		log.Fatalf("failed to fetch Cluster APIs: %v", err)
+		return "", "", fmt.Errorf("failed to fetch Cluster APIs: %v", err)
 	}
 
 	apiResources := strings.Fields(string(out))
@@ -139,24 +137,20 @@ func getControllerDeploymentNamespacedName(ctx context.Context) (string, string,
 	for _, apiResource := range apiResources {
 		switch strings.SplitN(apiResource, ".", 2)[0] {
 		case "linstorclusters":
-			out, err := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "deployments", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}", "--selector", "app.kubernetes.io/component=linstor-controller").Output()
+			out, err := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "pods", "--output", "jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{end}", "--selector", "app.kubernetes.io/component=linstor-controller").Output()
 			if err != nil {
-				return "", "", fmt.Errorf("failed to fetch LINSTOR controller resource: %w", err)
+				return "", "", fmt.Errorf("failed to fetch LINSTOR controller pods: %w", err)
 			}
 
-			controllerDeployments := strings.Fields(string(out))
-			if len(controllerDeployments) == 0 {
-				log.Fatal("could not find a LINSTOR Controller Deployment resource")
+			controllerPods := strings.Fields(string(out))
+			if len(controllerPods) == 0 {
+				return "", "", fmt.Errorf("could not find a LINSTOR Controller Pod")
 			}
 
-			if len(controllerDeployments) > 1 {
-				log.Fatalf("found more than one LINSTOR Controller Deployment resource: %v", controllerDeployments)
-			}
-
-			parts := strings.SplitN(controllerDeployments[0], ",", 2)
+			parts := strings.SplitN(controllerPods[0], ",", 2)
 			return parts[0], parts[1], nil
 		case "linstorcontrollers":
-			out, err := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "linstorcontrollers", "--output", "jsonpath={.items[*].metadata.namespace},{.items[*].metadata.name}").Output()
+			out, err := exec.CommandContext(ctx, "kubectl", "get", "--all-namespaces", "linstorcontrollers", "--output", "jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{end}").Output()
 			if err != nil {
 				return "", "", fmt.Errorf("failed to fetch LINSTOR controller resource: %w", err)
 			}
@@ -171,7 +165,17 @@ func getControllerDeploymentNamespacedName(ctx context.Context) (string, string,
 			}
 
 			parts := strings.SplitN(controllerResources[0], ",", 2)
-			return parts[0], parts[1] + "-controller", nil
+			out, err = exec.CommandContext(ctx, "kubectl", "get", "--namespace", parts[0], "pods", "--selector", "app.kubernetes.io/instance="+parts[1], "--output", "jsonpath={range .items[*]}{.metadata.name}{end}").Output()
+			if err != nil {
+				return "", "", fmt.Errorf("failed to fetch LINSTOR controller pods: %w", err)
+			}
+
+			controllerPods := strings.Fields(string(out))
+			if len(controllerPods) == 0 {
+				return "", "", fmt.Errorf("could not find a LINSTOR Controller Pod")
+			}
+
+			return parts[0], controllerPods[0], nil
 		}
 	}
 
@@ -188,7 +192,7 @@ func isSosReportDownload(args ...string) bool {
 	return isSosReport && isDownload
 }
 
-func doSosReportDownload(ctx context.Context, namespace, deployment string, kubectlArgs []string, args ...string) {
+func doSosReportDownload(ctx context.Context, namespace, pod string, kubectlArgs []string, args ...string) {
 	flags := pflag.NewFlagSet("download", pflag.ContinueOnError)
 	help := flags.BoolP("help", "h", false, "")
 	since := flags.StringP("since", "s", "", "Create sos-report with logs since n days. e.g. \"3days\"")
@@ -267,43 +271,16 @@ func doSosReportDownload(ctx context.Context, namespace, deployment string, kube
 			dest = filepath.Base(msgs[0].ObjRefs.Path)
 		}
 	}
-	file, err := os.Create(dest)
-	if err != nil {
-		log.Fatalf("failed to open destination file %s: %s", dest, err)
-	}
-	defer file.Close()
 
-	rpipe, wpipe, err := os.Pipe()
+	// --retries=-1 is needed as SOS reports can be quite large: https://github.com/kubernetes/kubernetes/issues/60140
+	err = exec.CommandContext(ctx, "kubectl", "cp", "--retries=-1", fmt.Sprintf("%s/%s:%s", namespace, pod, msgs[0].ObjRefs.Path), dest).Run()
 	if err != nil {
-		log.Fatalf("failed to create pipe: %s", err)
+		log.Fatalf("failed to copy SOS report to host: %s", err)
 	}
 
-	copyCmd := exec.CommandContext(ctx, "kubectl", append(kubectlArgs, "tar", "-cf", "-", msgs[0].ObjRefs.Path)...)
-	copyCmd.Stdout = wpipe
-	err = copyCmd.Start()
+	err = exec.CommandContext(ctx, "kubectl", append(kubectlArgs, "rm", msgs[0].ObjRefs.Path)...).Run()
 	if err != nil {
-		log.Fatalf("failed to start of copy sos-report to host: %s", err)
-	}
-
-	err = wpipe.Close()
-	if err != nil {
-		log.Fatalf("failed to close pipe: %s", err)
-	}
-
-	reader := tar.NewReader(rpipe)
-	_, err = reader.Next()
-	if err != nil {
-		log.Fatalf("failed to read tar header: %s", err)
-	}
-
-	_, err = io.Copy(file, reader)
-	if err != nil {
-		log.Fatalf("failed to copy SOS report: %s", err)
-	}
-
-	err = rpipe.Close()
-	if err != nil {
-		log.Fatalf("failed to close pipe: %s", err)
+		log.Fatalf("failed to remove sos-report from container: %s", err)
 	}
 
 	fileInfo, _ := os.Stdout.Stat()
@@ -335,7 +312,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	namespace, name, err := getControllerDeploymentNamespacedName(ctx)
+	namespace, podName, err := getControllerPodNamespacedName(ctx)
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
@@ -345,13 +322,12 @@ func main() {
 		// Enable interactive mode in case the plugin is running in a tty.
 		toExecArgs = append(toExecArgs, "--tty")
 	}
-	deploymentRef := fmt.Sprintf("deployment/%s", name)
 
-	toExecArgs = append(toExecArgs, deploymentRef, "--")
+	toExecArgs = append(toExecArgs, fmt.Sprintf("pod/%s", podName), "--")
 	cmdArgs := os.Args[1:]
 	switch {
 	case isSosReportDownload(cmdArgs...):
-		doSosReportDownload(ctx, namespace, deploymentRef, toExecArgs, cmdArgs...)
+		doSosReportDownload(ctx, namespace, podName, toExecArgs, cmdArgs...)
 	default:
 		rawExec(ctx, toExecArgs, cmdArgs...)
 	}
