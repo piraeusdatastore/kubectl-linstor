@@ -182,6 +182,14 @@ func getControllerPodNamespacedName(ctx context.Context) (string, string, error)
 	return "", "", fmt.Errorf("could not find a managed LINSTOR Controller resource")
 }
 
+func isVersion(args ...string) bool {
+	if len(args) != 1 {
+		return false
+	}
+
+	return args[0] == "version"
+}
+
 func isSosReportDownload(args ...string) bool {
 	if len(args) < 2 {
 		return false
@@ -308,7 +316,16 @@ func rawExec(ctx context.Context, kubectlArgs []string, args ...string) {
 	os.Exit(cmd.ProcessState.ExitCode())
 }
 
+var version = "0.0.0"
+
 func main() {
+	cmdArgs := os.Args[1:]
+
+	if isVersion(cmdArgs...) {
+		fmt.Println(version)
+		return
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -324,7 +341,6 @@ func main() {
 	}
 
 	toExecArgs = append(toExecArgs, fmt.Sprintf("pod/%s", podName), "--")
-	cmdArgs := os.Args[1:]
 	switch {
 	case isSosReportDownload(cmdArgs...):
 		doSosReportDownload(ctx, namespace, podName, toExecArgs, cmdArgs...)

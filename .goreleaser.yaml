@@ -21,6 +21,10 @@ builds:
       - amd64
       - arm64
       - s390x
+    ldflags:
+      - -s
+      - -w
+      - -X main.version={{ .Version }}
 
 archives:
   - format: tar.gz
